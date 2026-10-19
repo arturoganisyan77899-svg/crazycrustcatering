@@ -1,0 +1,19 @@
+-- Run in Supabase SQL Editor. Then create ONE owner in Authentication > Users.
+create table if not exists public.admins(user_id uuid primary key references auth.users(id) on delete cascade);
+create table if not exists public.site_settings(id int primary key default 1,content jsonb not null);
+create table if not exists public.bookings(id uuid primary key default gen_random_uuid(),created_at timestamptz default now(),date date not null,event_time text,customer_name text not null,phone text,email text,contact_method text,address text,notes text,guests int,package_name text,pizzas jsonb,salads jsonb,pastas jsonb,total numeric,status text not null default 'pending' check(status in ('pending','awaiting-deposit','booked','declined','manual')));
+create unique index if not exists one_confirmed_event_per_day on public.bookings(date) where status in ('booked','awaiting-deposit','manual');
+alter table public.admins enable row level security;
+alter table public.site_settings enable row level security;
+alter table public.bookings enable row level security;
+create policy "owner sees own admin row" on public.admins for select to authenticated using(user_id=auth.uid());
+create policy "public reads site" on public.site_settings for select to anon,authenticated using(true);
+create policy "owner edits site" on public.site_settings for update to authenticated using(exists(select 1 from public.admins where user_id=auth.uid())) with check(exists(select 1 from public.admins where user_id=auth.uid()));
+create policy "public requests event" on public.bookings for insert to anon,authenticated with check(status='pending' and date>=current_date and customer_name is not null and phone is not null and email is not null);
+create policy "owner reads requests" on public.bookings for select to authenticated using(exists(select 1 from public.admins where user_id=auth.uid()));
+create policy "owner updates requests" on public.bookings for update to authenticated using(exists(select 1 from public.admins where user_id=auth.uid())) with check(exists(select 1 from public.admins where user_id=auth.uid()));
+create policy "owner inserts manual dates" on public.bookings for insert to authenticated with check(exists(select 1 from public.admins where user_id=auth.uid()));
+-- After creating an auth user, replace the UUID below and run separately:
+-- insert into public.admins(user_id) values ('YOUR-AUTH-USER-UUID');
+
+insert into public.site_settings(id,content) values(1,' {"packages": [{"id": "basic", "name": "Basic", "rate": 22, "min": 750, "count": 4, "salads": 0, "pastas": 0}, {"id": "classic", "name": "Classic", "rate": 27, "min": 810, "count": 5, "salads": 1, "pastas": 0}, {"id": "premium", "name": "Premium", "rate": 32, "min": 960, "count": 6, "salads": 2, "pastas": 2}], "fees": [{"max": 15, "price": 200}, {"max": 25, "price": 250}, {"max": 35, "price": 300}, {"max": 50, "price": 375}], "pizzas": [{"name": "Margherita", "tier": "basic", "active": true}, {"name": "Pepperoni", "tier": "basic", "active": true}, {"name": "Cheese", "tier": "basic", "active": true}, {"name": "Hawaiian", "tier": "basic", "active": true}, {"name": "Vegetarian", "tier": "basic", "active": true}, {"name": "BBQ Chicken", "tier": "basic", "active": true}, {"name": "Meat Lovers", "tier": "classic", "active": true}, {"name": "Capricciosa", "tier": "classic", "active": true}, {"name": "Supreme", "tier": "classic", "active": true}, {"name": "Mortadella", "tier": "premium", "active": true}, {"name": "Pistachio Pesto", "tier": "premium", "active": true}, {"name": "Burrata", "tier": "premium", "active": true}, {"name": "Crazy Special", "tier": "premium", "active": true}], "salads": ["Caesar Salad", "Garden Salad"], "pastas": ["Alfredo", "Marinara"], "gallery": [], "heroText": {"en": "Crazy Crust Pizza Catering", "es": "Crazy Crust Pizza Catering", "ru": "Crazy Crust Pizza Catering"}}'::jsonb) on conflict(id) do nothing;
